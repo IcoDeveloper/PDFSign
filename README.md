@@ -12,7 +12,7 @@ the certificate must
   - the user running pdfsign must have read access to the private key
   
 ## usage
-pdfsign v1.2.0, (c) 2019 icomedias GmbH
+```pdfsign v1.2.0, (c) 2019 icomedias GmbH
 powered by iTextSharp 5.5 Copyright (C) 1999-2018 by iText Group NV
 Usage: pdfsign [OPTIONS]
 Sign a PDF file using a signing certificate
@@ -53,7 +53,7 @@ Return Values:
         -4: Error getting certificate chain
         -5: Error processing input file
         -6: Error opening output file
-        -7: Error generating signature
+        -7: Error generating signature```
 
 ## multiple signatures
 
