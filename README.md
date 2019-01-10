@@ -1,9 +1,11 @@
 # PDFSign
-Command line tool for signing PDF Files using itextsharp library
+Basic command line tool for signing PDF Files using itextsharp library
 
 ## Notes
 This is a command line tool that allows signing of pdf files using certificates.
 the actual PDF manipulation is performed using the itextsharp library v5.5
+This tool was originaly published on [codeplex](https://archive.codeplex.com/?p=pdfsign)
+
 
 The signing certificate can can either be provided as a pkcs12 file or it can come from 
 the windows certificate store. In order to use a certificate from the windows store,
@@ -11,8 +13,14 @@ the certificate must
   - be have the private key marked as exportable
   - the user running pdfsign must have read access to the private key
   
+In Addition to nuget packages, the build process uses Microsofts [ILMerge](http://www.microsoft.com/download/en/details.aspx?displaylang=en&id=17630) 
+tool to produce a consolidated single binary including all dlls. 
+
+Currently, the signatures created are not LTV capable, i.e they expire with the validity of the signing certificate
+
 ## usage
-```pdfsign v1.2.0, (c) 2019 icomedias GmbH
+```
+pdfsign v1.2.0, (c) 2019 icomedias GmbH
 powered by iTextSharp 5.5 Copyright (C) 1999-2018 by iText Group NV
 Usage: pdfsign [OPTIONS]
 Sign a PDF file using a signing certificate
@@ -53,7 +61,8 @@ Return Values:
         -4: Error getting certificate chain
         -5: Error processing input file
         -6: Error opening output file
-        -7: Error generating signature```
+        -7: Error generating signature
+```
 
 ## multiple signatures
 
