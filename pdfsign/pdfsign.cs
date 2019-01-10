@@ -1,30 +1,15 @@
 ﻿/*
  * pdfsign.cs: digitaly sign pdf files
  *
- * Copyright (C) 2011 Martin Bene icomedias GmbH
+ * Copyright (C) 2019 icomedias GmbH
  *
  * originally based on code/samples from itext project by:
- * Copyright (C) 1999-2011 by 1T3XT BVBA, Bruno Lowagie and Paulo Soares.>
+ * Copyright (C) 1999-2011 by 1T3XT BVBA, Bruno Lowagie and Paulo Soares.
+ * updated to use itextsharp 5.5 libary
+ * Copyright (C) 1999-2018 by iText Group NV
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- * Or, point your browser to http://www.gnu.org/copyleft/gpl.html
- *
- *
- * the project's page is at http://pdfsign.codeplex.com/
+ * This program is licensed unter the terms of the 
+ * GNU Affero General Public License v3.0, see LICENSE File
  */
 
 using iTextSharp.text;
@@ -46,7 +31,7 @@ namespace pdfsign
         static void ShowHelp(OptionSet p)
         {
             Console.WriteLine("pdfsign v1.2.0, (c) 2019 icomedias GmbH");
-            Console.WriteLine("powered by iTextSharp Copyright © 1999 - 2011 by Bruno Lowagie and Paulo Soares");
+            Console.WriteLine("powered by iTextSharp 5.5 Copyright (C) 1999-2018 by iText Group NV");
             Console.WriteLine("Usage: pdfsign [OPTIONS]");
             Console.WriteLine("Sign a PDF file using a signing certificate");
             Console.WriteLine();
