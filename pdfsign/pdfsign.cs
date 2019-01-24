@@ -1,4 +1,5 @@
 ﻿/*
+/*
  * pdfsign.cs: digitaly sign pdf files
  *
  * Copyright (C) 2019 icomedias GmbH
@@ -30,7 +31,7 @@ namespace pdfsign
 
         static void ShowHelp(OptionSet p)
         {
-            Console.WriteLine("pdfsign v1.2.0, (c) 2019 icomedias GmbH");
+            Console.WriteLine("pdfsign v1.3.0, (c) 2019 icomedias GmbH");
             Console.WriteLine("powered by iTextSharp 5.5 Copyright (C) 1999-2018 by iText Group NV");
             Console.WriteLine("Usage: pdfsign [OPTIONS]");
             Console.WriteLine("Sign a PDF file using a signing certificate");
@@ -69,12 +70,17 @@ namespace pdfsign
             int vsep = 10;
             int hoffset = 350;
             int voffset = 5;
+            int pageno = 1;
+            string pageParam = "1";
             string infile = null;
+            string backpage = null;
             string outfile = null;
             string certfile = null;
             string thumbprint = null;
             string tsaUrl = null;
             string store = "LocalMachine";
+            string template = null;
+            string dateformat = "G"; 
             //string storeLocation = "My";
             string password = null;
             string reason = "proof of authenticity";
@@ -90,6 +96,7 @@ namespace pdfsign
             var p = new OptionSet() {
                 { "i|infile=", "PDF input file", v => infile = v },
                 { "o|outfile=", "output file for signed PDF", v => outfile = v },
+                { "b|backpage=", "PDF file to append to infile before placing signature (optional)", v => backpage = v },
                 { "c|certfile=", "PKCS12 signing certificate", v => certfile = v },
                 { "p|password=", "import password for signing certificate", v => password = v },
                 { "thumbprint=", "thumbprint for signing certificate from windows store", v => thumbprint = v },
@@ -99,6 +106,9 @@ namespace pdfsign
                 { "l|location=", "signature location (gets embedded in signature)", v => location = v },
                 { "t|contact=", "signature contact (gets embedded in signature)", v => contact = v },
                 { "s|show", "show signature (signature field visible), on: -s+ off: -s-, default on", v => show_signature = v != null },
+                { "page=", "page of the document to place signature: 1..n, last. default 1", v => pageParam = v },
+                { "template=", "Template for the signature text. use \\n for line breaks, [name], [date] for substitution", v => template = v },
+                { "dateformat=", "format for [date] substitutuin when using template", v => dateformat = v },
                 { "showvalidity", "show signature validity (deprecated), on: -showvalidity+ off: -showvalidity-, default off", v => show_validity = v != null },
                 { "tsa=", "URL of rfc3161 TSA (Time Stamping Authority)", v => tsaUrl = v },
                 { "width=", "signature width, default 180", (int v) => width = v},
@@ -133,7 +143,8 @@ namespace pdfsign
                 if (outfile == null)
                     throw new OptionException("required parameter {0} missing", "outfile");
 
-
+                if (!String.IsNullOrEmpty(backpage) && !File.Exists(backpage))
+                    throw new OptionException("backpage file {0} does not exist", backpage);
                 if (String.IsNullOrEmpty(thumbprint))
                 {
                     if (certfile == null)
@@ -147,6 +158,14 @@ namespace pdfsign
 
                 if (!String.IsNullOrEmpty(certfile) && !File.Exists(certfile))
                     throw new OptionException("certfile {0} does not exist", certfile);
+
+                if (!string.IsNullOrEmpty(pageParam))
+                {
+                    if (pageParam.Equals("last", StringComparison.OrdinalIgnoreCase))
+                        pageno = 0;
+                    else if (!int.TryParse(pageParam, out pageno))
+                        throw new OptionException("invalid page parameter {0}", pageParam);
+                }
 
             }
             catch (OptionException e)
@@ -218,12 +237,27 @@ namespace pdfsign
                 }
 
                 retval = Retvals.ERR_INPUT; // Error processing input file
-                PdfReader reader = new PdfReader(infile);
+                PdfReader reader;
+                if (string.IsNullOrEmpty(backpage))
+                {
+                    reader = new PdfReader(infile);
+                } else
+                {
+                    MemoryStream tmpOut = new MemoryStream();
+                    Document document = new Document();
+                    PdfCopy copy = new PdfSmartCopy(document, tmpOut);
+                    document.Open();
+                    using (var r = new PdfReader(infile))
+                        copy.AddDocument(r);
+                    using (var r = new PdfReader(backpage))
+                        copy.AddDocument(r);
+                    document.Close();
+                    reader = new PdfReader(tmpOut.ToArray());
+                }
 
                 retval = Retvals.ERR_OUTPUT; // Error opening output file
                 FileStream fout = new FileStream(outfile, FileMode.Create, FileAccess.Write);
-
-                MemoryStream tmpOut = new MemoryStream();
+                
 
                 retval = Retvals.ERR_SIGN; // Error generating signature
                 PdfStamper stp = PdfStamper.CreateSignature(reader, fout, '\0', null, multi_signature);
@@ -254,14 +288,27 @@ namespace pdfsign
                     } while (form.GetField(name) != null);
                     int xoff = (cnt % cols) * (width + hsep) + hoffset;
                     int yoff = cnt / cols * (height + vsep) + voffset;
-                    sap.SetVisibleSignature(new Rectangle(xoff, yoff, xoff + width, yoff + height), 1, name);
+                    if (pageno == 0 || pageno > reader.NumberOfPages)
+                        pageno = reader.NumberOfPages;
+
+                    if (!String.IsNullOrEmpty(template))
+                    {
+                        template = template.Replace("\\n", "\n");
+                        var subject = ks.GetCertificate(alias).Certificate.SubjectDN.GetValueList(new Org.BouncyCastle.Asn1.DerObjectIdentifier("2.5.4.3"))[0].ToString();
+                        string date = sap.SignDate.ToString(dateformat);
+                        template = template.Replace("[name]", subject);
+                        template = template.Replace("[date]", date);
+                        sap.Layer2Text = template;
+                    }
+
+                    sap.SetVisibleSignature(new Rectangle(xoff, yoff, xoff + width, yoff + height), pageno, name);
                 }
 
 
                 //List<ICrlClient> crlClients = new List<ICrlClient>();
                 //crlClients.Add(new CrlClientOnline());
-                ICrlClient crlClient = new CrlClientOnline();
-                var ocspClient = new OcspClientBouncyCastle();
+                //ICrlClient crlClient = new CrlClientOnline();
+                //var ocspClient = new OcspClientBouncyCastle();
                 TSAClientBouncyCastle tsa = null;
                 if (!string.IsNullOrEmpty(tsaUrl))
                     tsa = new TSAClientBouncyCastle(tsaUrl); 
@@ -269,17 +316,28 @@ namespace pdfsign
                 IExternalSignature es = new PrivateKeySignature(pk, "SHA-256");
                 MakeSignature.SignDetached(sap,
                                            es,
-                                           chain, //new X509Certificate[] { ks.GetCertificate(alias).Certificate },
+                                           //chain, 
+                                           new X509Certificate[] { ks.GetCertificate(alias).Certificate },
                                            null,
                                            null,
                                            tsa,
                                            0,
-                                           CryptoStandard.CMS);
+                                           CryptoStandard.CADES);
+
+                stp.Close();
 
                 // Make LTV
+                //MemoryStream tmpInput = new MemoryStream(tmpOut.GetBuffer());
+                //reader = new PdfReader(tmpInput);
+                //PdfStamper pdfStamper = new PdfStamper(reader, fout, '\0', true);
+
+                //AdobeLtvEnabling adobeLtvEnabling = new AdobeLtvEnabling(pdfStamper);
+                //IOcspClient ocsp = new OcspClientBouncyCastle();
+                //ICrlClient crl = new CrlClientOnline();
+                //adobeLtvEnabling.enable(ocsp, crl);
+                //pdfStamper.Close();
+
                 /*
-                MemoryStream tmpInput = new MemoryStream(tmpOut.GetBuffer());
-                reader = new PdfReader(tmpInput);
                 stp = PdfStamper.CreateSignature(reader, fout, '\0', null, true);
                 AcroFields fields = stp.AcroFields;
                 List<String> names = fields.GetSignatureNames();
@@ -306,7 +364,6 @@ namespace pdfsign
                 sap = stp.SignatureAppearance;
                 LtvTimestamp.Timestamp(sap, tsa, "SHA-256");
                 */
-                stp.Close();
 
                 //PdfSignature dic = new PdfSignature(PdfName.ADOBE_PPKLITE, new PdfName("adbe.pkcs7.detached"));
                 //dic.Reason = sap.Reason;
