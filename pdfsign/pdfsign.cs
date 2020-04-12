@@ -196,7 +196,7 @@ namespace pdfsign
                         cer = certs[0];
                     } else
                     {
-                        throw new InvalidOperationException("Certificate with specified thumbnail not found");
+                        throw new InvalidOperationException("Certificate with specified thumbprint not found");
                     }
                     System.Security.Cryptography.X509Certificates.X509Certificate2Collection certCol = new System.Security.Cryptography.X509Certificates.X509Certificate2Collection();
                     System.Security.Cryptography.X509Certificates.X509Chain x509chain = new System.Security.Cryptography.X509Certificates.X509Chain();

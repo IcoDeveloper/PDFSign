@@ -16,11 +16,11 @@ the certificate must
 In Addition to nuget packages, the build process uses Microsofts [ILMerge](http://www.microsoft.com/download/en/details.aspx?displaylang=en&id=17630) 
 tool to produce a consolidated single binary including all dlls. 
 
-Currently, the signatures created are not LTV capable, i.e they expire with the validity of the signing certificate
+Currently, the signatures created are not LTV capable for all certificates, i.e they may expire with the validity of the signing certificate
 
 ## usage
 ```
-pdfsign v1.2.0, (c) 2019 icomedias GmbH
+pdfsign v1.3.0, (c) 2019 icomedias GmbH
 powered by iTextSharp 5.5 Copyright (C) 1999-2018 by iText Group NV
 Usage: pdfsign [OPTIONS]
 Sign a PDF file using a signing certificate
@@ -28,6 +28,8 @@ Sign a PDF file using a signing certificate
 Options:
   -i, --infile=VALUE         PDF input file
   -o, --outfile=VALUE        output file for signed PDF
+  -b, --backpage=VALUE       PDF file to append to infile before placing
+                               signature (optional)
   -c, --certfile=VALUE       PKCS12 signing certificate
   -p, --password=VALUE       import password for signing certificate
       --thumbprint=VALUE     thumbprint for signing certificate from windows
@@ -40,6 +42,11 @@ Options:
   -t, --contact=VALUE        signature contact (gets embedded in signature)
   -s, --show                 show signature (signature field visible), on: -s+
                                off: -s-, default on
+      --page=VALUE           page of the document to place signature: 1..n,
+                               last. default 1
+      --template=VALUE       Template for the signature text. use \n for line
+                               breaks, [name], [date] for substitution
+      --dateformat=VALUE     format for [date] substitutuin when using template
       --showvalidity         show signature validity (deprecated), on: -
                                showvalidity+ off: -showvalidity-, default off
       --tsa=VALUE            URL of rfc3161 TSA (Time Stamping Authority)
@@ -60,9 +67,7 @@ Return Values:
         -3: Error getting secret key
         -4: Error getting certificate chain
         -5: Error processing input file
-        -6: Error opening output file
-        -7: Error generating signature
-```
+        -6: Error opening output file```
 
 ## multiple signatures
 
