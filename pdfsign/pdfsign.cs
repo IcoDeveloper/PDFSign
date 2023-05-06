@@ -1,4 +1,4 @@
-﻿/*
+/*
 /*
  * pdfsign.cs: digitaly sign pdf files
  *
@@ -17,12 +17,22 @@ using iTextSharp.text;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.security;
 using Mono.Options;
+using Org.BouncyCastle.Asn1.Esf;
 using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Tls;
+using Org.BouncyCastle.Ocsp;
 using Org.BouncyCastle.Pkcs;
+using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using static System.Net.Mime.MediaTypeNames;
+using Image = iTextSharp.text.Image;
+using X509Certificate = Org.BouncyCastle.X509.X509Certificate;
 
 namespace pdfsign
 {
@@ -80,6 +90,9 @@ namespace pdfsign
             string tsaUrl = null;
             string store = "LocalMachine";
             string template = null;
+            string image = null;
+            int imageX = 350;
+            int imageY = 5;
             string dateformat = "G"; 
             //string storeLocation = "My";
             string password = null;
@@ -107,7 +120,10 @@ namespace pdfsign
                 { "t|contact=", "signature contact (gets embedded in signature)", v => contact = v },
                 { "s|show", "show signature (signature field visible), on: -s+ off: -s-, default on", v => show_signature = v != null },
                 { "page=", "page of the document to place signature: 1..n, last. default 1", v => pageParam = v },
-                { "template=", "Template for the signature text. use \\n for line breaks, [name], [date] for substitution", v => template = v },
+                { "template=", "template for the signature text. use \\n for line breaks, [name], [date] for substitution", v => template = v },
+                { "image=","path to image shown as signature", (string v) => image = v},
+                { "imagex=", "image X positicon, default 350", (int v) => imageX = v},
+                { "imagey=", "image Y positicon, default 5", (int v) => imageY = v},
                 { "dateformat=", "format for [date] substitutuin when using template", v => dateformat = v },
                 { "showvalidity", "show signature validity (deprecated), on: -showvalidity+ off: -showvalidity-, default off", v => show_validity = v != null },
                 { "tsa=", "URL of rfc3161 TSA (Time Stamping Authority)", v => tsaUrl = v },
@@ -179,8 +195,10 @@ namespace pdfsign
             try
             {
                 retval = Retvals.ERR_CERT; // Error processing certificate file
-                Stream fs = null; 
-                if (!String.IsNullOrEmpty(thumbprint))
+                Stream fs = null;
+                Org.BouncyCastle.X509.X509Certificate[] chain;
+                IExternalSignature es;
+                if (!String.IsNullOrEmpty(thumbprint))  //Processing certificates from WCS
                 {
                     System.Security.Cryptography.X509Certificates.X509Certificate2 cer = null;
                     System.Security.Cryptography.X509Certificates.StoreLocation certStoreLocation = System.Security.Cryptography.X509Certificates.StoreLocation.LocalMachine;
@@ -198,42 +216,45 @@ namespace pdfsign
                     {
                         throw new InvalidOperationException("Certificate with specified thumbprint not found");
                     }
-                    System.Security.Cryptography.X509Certificates.X509Certificate2Collection certCol = new System.Security.Cryptography.X509Certificates.X509Certificate2Collection();
                     System.Security.Cryptography.X509Certificates.X509Chain x509chain = new System.Security.Cryptography.X509Certificates.X509Chain();
                     x509chain.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck;
                     x509chain.Build(cer);
-                    for (int chainIDX = 0; chainIDX < x509chain.ChainElements.Count; chainIDX++)
-                        certCol.Add(x509chain.ChainElements[chainIDX].Certificate);
-                    password = "12345";
-                    byte[] pkcs12 = certCol.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pkcs12, password);
-                    fs = new MemoryStream(pkcs12);
-                    fs.Seek(0, SeekOrigin.Begin);
+
+                    // convert the chain to BouncyCastle format
+                    Org.BouncyCastle.X509.X509Certificate[] bouncyCastleChain = new Org.BouncyCastle.X509.X509Certificate[x509chain.ChainElements.Count];
+                    for (int i = 0; i < x509chain.ChainElements.Count; i++)
+                    {
+                        X509Certificate2 element = x509chain.ChainElements[i].Certificate;
+                        bouncyCastleChain[i] = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(element.RawData);
+                    }
+                    chain = bouncyCastleChain;
+                    es = new X509Certificate2Signature(cer, "SHA-1");
                 }
                 else
                 {
+                    retval = Retvals.ERR_KEY; // Error extracting secret key
+
                     fs = new FileStream(certfile, FileMode.Open, FileAccess.Read);
-                }
-                Pkcs12Store ks = new Pkcs12Store(fs, password.ToCharArray());
-                string alias = null;
-                foreach (string al in ks.Aliases)
-                {
-                    if (ks.IsKeyEntry(al) && ks.GetKey(al).Key.IsPrivate)
+                    Pkcs12Store ks = new Pkcs12Store(fs, password.ToCharArray());
+                    string alias = null;
+                    foreach (string al in ks.Aliases)
                     {
-                        alias = al;
-                        break;
+                        if (ks.IsKeyEntry(al) && ks.GetKey(al).Key.IsPrivate)
+                        {
+                            alias = al;
+                            break;
+                        }
                     }
-                }
-                fs.Close();
+                    fs.Close();
 
-                retval = Retvals.ERR_KEY; // Error extracting secret key
-                ICipherParameters pk = ks.GetKey(alias).Key;
-
-                retval = Retvals.ERR_CHAIN; // Error extracting certificate chain
-                X509CertificateEntry[] x = ks.GetCertificateChain(alias);
-                X509Certificate[] chain = new X509Certificate[x.Length];
-                for (int k = 0; k < x.Length; ++k)
-                {
-                    chain[k] = x[k].Certificate;
+                    retval = Retvals.ERR_CHAIN; // Error extracting certificate chain
+                    X509CertificateEntry[] x = ks.GetCertificateChain(alias);
+                    chain = new X509Certificate[x.Length];
+                    for (int k = 0; k < x.Length; ++k)
+                    {
+                        chain[k] = x[k].Certificate;                    
+                    }
+                    es = new PrivateKeySignature(ks.GetKey(alias).Key, "SHA-256");
                 }
 
                 retval = Retvals.ERR_INPUT; // Error processing input file
@@ -271,7 +292,26 @@ namespace pdfsign
                 sap.Acro6Layers = !show_validity;
 
 
-                // when using visible signatures: find an unused field name for the signature
+                //Add image stamp
+                Rectangle stampRect = null;
+                if (image != null && image.Length > 0 && File.Exists(image))
+                {
+                    Image stampImg = Image.GetInstance(image);
+                    float dpi = (float)stampImg.DpiX;
+                    if (dpi == 0) dpi = 72.0f;
+                    float resizePercent = 72.0f / (float)stampImg.DpiX;
+                    //stampImg.ScalePercent(resizePercent*100);
+                    stampRect = new Rectangle(imageX, imageY, imageX + stampImg.Width * resizePercent, imageY + stampImg.Height * resizePercent);
+                    PdfAnnotation pdfStamp = iTextSharp.text.pdf.PdfAnnotation.CreateStamp(stp.Writer, stampRect, null, Guid.NewGuid().ToString());
+                    stampImg.SetAbsolutePosition(0, 0);
+                    PdfAppearance app = stp.GetOverContent(1).CreateAppearance(stampImg.Width, stampImg.Height);
+                    app.AddImage(stampImg);
+                    pdfStamp.SetAppearance(PdfName.N, app);
+                    pdfStamp.SetPage();
+                    pdfStamp.Flags = PdfAnnotation.FLAGS_PRINT;
+                    stp.AddAnnotation(pdfStamp, pageno);                     
+                }
+                
                 if (show_signature)
                 {
                     string basename = "Signature";
@@ -291,17 +331,26 @@ namespace pdfsign
                     if (pageno == 0 || pageno > reader.NumberOfPages)
                         pageno = reader.NumberOfPages;
 
-                    if (!String.IsNullOrEmpty(template))
+                    // when using image stamp hide the text
+                    if (stampRect != null)
                     {
-                        template = template.Replace("\\n", "\n");
-                        var subject = ks.GetCertificate(alias).Certificate.SubjectDN.GetValueList(new Org.BouncyCastle.Asn1.DerObjectIdentifier("2.5.4.3"))[0].ToString();
-                        string date = sap.SignDate.ToString(dateformat);
-                        template = template.Replace("[name]", subject);
-                        template = template.Replace("[date]", date);
-                        sap.Layer2Text = template;
+                        sap.Layer2Text = string.Empty;
+                        sap.SetVisibleSignature(stampRect, 1, name);
                     }
-
-                    sap.SetVisibleSignature(new Rectangle(xoff, yoff, xoff + width, yoff + height), pageno, name);
+                    else
+                    {
+                        // when using visible signatures: find an unused field name for the signature
+                        if (!String.IsNullOrEmpty(template))
+                        {
+                            template = template.Replace("\\n", "\n");
+                            //var subject = ks.GetCertificate(alias).Certificate.SubjectDN.GetValueList(new Org.BouncyCastle.Asn1.DerObjectIdentifier("2.5.4.3"))[0].ToString();
+                            string date = sap.SignDate.ToString(dateformat);
+                            // template = template.Replace("[name]", subject);
+                            template = template.Replace("[date]", date);
+                            sap.Layer2Text = template;
+                        }
+                        sap.SetVisibleSignature(new Rectangle(xoff, yoff, xoff + width, yoff + height), pageno, name);
+                    }
                 }
 
 
@@ -311,18 +360,17 @@ namespace pdfsign
                 //var ocspClient = new OcspClientBouncyCastle();
                 TSAClientBouncyCastle tsa = null;
                 if (!string.IsNullOrEmpty(tsaUrl))
-                    tsa = new TSAClientBouncyCastle(tsaUrl); 
+                    tsa = new TSAClientBouncyCastle(tsaUrl);
 
-                IExternalSignature es = new PrivateKeySignature(pk, "SHA-256");
                 MakeSignature.SignDetached(sap,
                                            es,
                                            //chain, 
-                                           new X509Certificate[] { ks.GetCertificate(alias).Certificate },
+                                           chain,
                                            null,
                                            null,
                                            tsa,
                                            0,
-                                           CryptoStandard.CADES);
+                                           CryptoStandard.CMS);
 
                 stp.Close();
 
